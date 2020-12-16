@@ -138,12 +138,12 @@ namespace Pdsm {
     }
 
 
-    // make \kappa'
+    // make right projection q
     void
-    get_homological_simplicial_map_from_dom( const SparseMatrix& inclusion_map,
-                                             const SparseMatrix& homological_simplicial_map,
-                                             SparseMatrix& homological_simplicial_map_from_dom ) {
-        homological_simplicial_map_from_dom = homological_simplicial_map * inclusion_map;
+    get_right_projection( const SparseMatrix& left_projection,
+                          const SparseMatrix& homological_simplicial_map,
+                          SparseMatrix& right_projection ) {
+        right_projection = homological_simplicial_map * left_projection;
     }
 
 
@@ -200,13 +200,13 @@ namespace Pdsm {
         }
     };
 
-    class ReducedDom : public Reduced {
+    class ReducedGraph : public Reduced {
     private:
-        BoundaryMatrixDom reduced_dom_bdmat;
+        BoundaryMatrixGraph reduced_graph_bdmat;
 
     public:
         void get_col( Index idx, SparseColumn& col ) const {
-            reduced_dom_bdmat.get_col( idx, col );
+            reduced_graph_bdmat.get_col( idx, col );
         }
 
         // return generators = set of death indices s.t. idx \in (b,d) and dim dimensional.
@@ -216,7 +216,7 @@ namespace Pdsm {
             for ( const auto& bd : birth_death_pair ) {
                 Index birth = bd.first; //birth at Index number.
                 Index death = bd.second; //death at Index number.
-                if ( birth <= idx && idx < death && reduced_dom_bdmat.get_dim( bd.first ) == dim ) {
+                if ( birth <= idx && idx < death && reduced_graph_bdmat.get_dim( bd.first ) == dim ) {
                     generators.push_back( bd.second );
                 }
             }
@@ -224,24 +224,24 @@ namespace Pdsm {
             sort( generators );
         }
 
-        void operator()( const BoundaryMatrixDom& bdmat_dom ) {
-            reduced_dom_bdmat = bdmat_dom;
+        void operator()( const BoundaryMatrixGraph& bdmat_graph ) {
+            reduced_graph_bdmat = bdmat_graph;
 
-            const Index cols = reduced_dom_bdmat.cols();
+            const Index cols = reduced_graph_bdmat.cols();
             std::vector< Index > lowest( cols, -1 ); // a vector L = (-1, -1, ..., -1)
 
             for ( Index cur_col = 0; cur_col < cols; cur_col++ ) {
-                Index max_idx = reduced_dom_bdmat.get_max_index( cur_col );
+                Index max_idx = reduced_graph_bdmat.get_max_index( cur_col );
                 while ( max_idx != -1 && lowest[max_idx] != -1 ) {
-                    reduced_dom_bdmat.reduce( lowest[max_idx], cur_col ); // MATRIX ADDITION HERE!
-                    max_idx = reduced_dom_bdmat.get_max_index( cur_col );
+                    reduced_graph_bdmat.reduce( lowest[max_idx], cur_col ); // MATRIX ADDITION HERE!
+                    max_idx = reduced_graph_bdmat.get_max_index( cur_col );
                 }
                 if ( max_idx != -1 ) {
                     lowest[max_idx] = cur_col;
                     birth_death_pair.insert( std::make_pair( max_idx, cur_col ));
-                    reduced_dom_bdmat.normalize( cur_col ); // lowest non-zero value should be 1.
+                    reduced_graph_bdmat.normalize( cur_col ); // lowest non-zero value should be 1.
                 }
-                reduced_dom_bdmat.prune();
+                reduced_graph_bdmat.prune();
             }
         }
     };
@@ -249,7 +249,7 @@ namespace Pdsm {
     // STEP2
     // make homology induced maps as matrices
 
-    // mapping cycles (non-zero SparseColumn in reduced_dom), and decompose by basis of codomain
+    // mapping cycles (non-zero SparseColumn in reduced_graph), and decompose by the basis of the target space
     void make_cycle_decomposition( const SparseColumn& cycle, const SparseMatrix& simplicial_map,
                                    const Reduced& reduce_target,
                                    SparseColumn& cycle_decomposition_of_image ) {
@@ -273,14 +273,14 @@ namespace Pdsm {
     }
 
     // compute homology induced map matrix (cycle_matrix)
-    void make_cycle_matrix( const ReducedDom& reduce_dom, const SparseMatrix& simplicial_map,
+    void make_cycle_matrix( const ReducedGraph& reduce_graph, const SparseMatrix& simplicial_map,
                             const Reduced& reduce_target,
                             SparseMatrix& cycle_matrix ) {
         cycle_matrix.resize( simplicial_map.rows(), simplicial_map.cols());
         auto col_size = simplicial_map.cols();
         for ( Index idx = 0; idx < col_size; ++idx ) {
             SparseColumn cycle;
-            reduce_dom.get_col( idx, cycle );
+            reduce_graph.get_col( idx, cycle );
 
             SparseColumn cycle_decomposition_of_image;
             cycle_decomposition_of_image.resize( simplicial_map.cols());
@@ -294,14 +294,14 @@ namespace Pdsm {
         cycle_matrix.prune( 0, 0 );
     }
 
-    // get idx-th matrix from homological_map(inclusion matrix \iota OR kappa matrix \kappa')
-    void make_cycle_matrix_at( Index idx, Radius rad, Dimension dim, const ReducedDom& reduce_dom,
+    // get idx-th matrix from homological_map(left projection p OR right projection q)
+    void make_cycle_matrix_at( Index idx, Radius rad, Dimension dim, const ReducedGraph& reduce_graph,
                                const Reduced& reduce_target, const Radii& radii_vector_target,
                                const SparseMatrix& cycle_matrix, DenseMatrix& cycle_matrix_at_idx ) {
-        // generators of Hdom_{idx}
-        IndexColumn generators_dom_at_idx;
-        reduce_dom.get_generators_at( idx, dim, generators_dom_at_idx );
-        gyoza::Index cols = generators_dom_at_idx.size();
+        // generators of HG_{idx}
+        IndexColumn generators_graph_at_idx;
+        reduce_graph.get_generators_at( idx, dim, generators_graph_at_idx );
+        gyoza::Index cols = generators_graph_at_idx.size();
 
         // generators of HC_{maxidx <= rad} or HD_{maxidx <= rad}
         Index idx_target = max_index_under_value( radii_vector_target, rad );
@@ -311,27 +311,27 @@ namespace Pdsm {
 
         cycle_matrix_at_idx = DenseMatrix::Zero( rows, cols );
 
-        // in Matlab, this is cycle_matrix[generators_at_idx, generators_dom_at_idx]
+        // in Matlab, this is cycle_matrix[generators_at_idx, generators_graph_at_idx]
         for ( gyoza::Index col_idx = 0; col_idx < cols; ++col_idx ) {
-            SparseColumn temp_col = cycle_matrix.col( generators_dom_at_idx[col_idx] );
+            SparseColumn temp_col = cycle_matrix.col( generators_graph_at_idx[col_idx] );
             for ( gyoza::Index row_idx = 0; row_idx < rows; ++row_idx ) {
                 cycle_matrix_at_idx.coeffRef( row_idx, col_idx ) = temp_col.coeff( generators_at_idx[row_idx] );
             }
         }
     }
 
-    // maps in Hdom filtration (denoted as filter_matrix）
+    // maps in HG filtration (denoted as filter_matrix）
     void make_filter_matrix_between( Index idx_source, Index idx_target, Dimension dim,
-                                     const ReducedDom& reduce_dom,
+                                     const ReducedGraph& reduce_graph,
                                      DenseMatrix& filter_matrix_between_idx ) {
-        // generators of Hdom_{idx_source}
+        // generators of HG_{idx_source}
         IndexColumn generators_source;
-        reduce_dom.get_generators_at( idx_source, dim, generators_source );
+        reduce_graph.get_generators_at( idx_source, dim, generators_source );
         gyoza::Index cols = generators_source.size();
 
-        // generators of Hdom_{idx_target}
+        // generators of HG_{idx_target}
         IndexColumn generators_target;
-        reduce_dom.get_generators_at( idx_target, dim, generators_target );
+        reduce_graph.get_generators_at( idx_target, dim, generators_target );
         gyoza::Index rows = generators_target.size();
 
         filter_matrix_between_idx = DenseMatrix::Zero( rows, cols );
@@ -346,63 +346,64 @@ namespace Pdsm {
     }
 
 
-    // return: dim of I[1,3] computed from \iota_* and \kappa'_*
-    gyoza::Index get_change_of_basis( const DenseMatrix& inclusion_matrix, const DenseMatrix& kappa_matrix,
+    // return: dim of I[1,3] computed from p_* and q_*
+    gyoza::Index get_change_of_basis( const DenseMatrix& induced_left_matrix, const DenseMatrix& induced_right_matrix,
                                       gyoza::algorithms::FullPivotSNF< DenseMatrix >& snf_base_change ) {
-        auto full_cols = inclusion_matrix.cols();
-        DenseMatrix dom_base_change = DenseMatrix::Identity( full_cols, full_cols );
+        auto full_cols = induced_left_matrix.cols();
+        DenseMatrix graph_base_change = DenseMatrix::Identity( full_cols, full_cols );
 
-        gyoza::algorithms::FullPivotSNF< DenseMatrix > snf_inc( inclusion_matrix, true );
+        gyoza::algorithms::FullPivotSNF< DenseMatrix > snf_inc( induced_left_matrix, true );
 
         // base change
-        dom_base_change = dom_base_change * snf_inc.get_Q();
+        graph_base_change = graph_base_change * snf_inc.get_Q();
 
         auto rank_inc = snf_inc.rank();
 
-        DenseMatrix sub_left_kappa_matrix = (kappa_matrix * snf_inc.get_Q()).leftCols( rank_inc );
-        DenseMatrix sub_right_kappa_matrix = (kappa_matrix * snf_inc.get_Q()).rightCols( full_cols - rank_inc );
-        gyoza::algorithms::FullPivotSNF< DenseMatrix > snf_right_kappa( sub_right_kappa_matrix, true );
-        sub_left_kappa_matrix = snf_right_kappa.get_P() * sub_left_kappa_matrix;
+        // Note: q_matrix is the induced right matrix Q_*
+        DenseMatrix sub_left_q_matrix = (induced_right_matrix * snf_inc.get_Q()).leftCols( rank_inc );
+        DenseMatrix sub_right_q_matrix = (induced_right_matrix * snf_inc.get_Q()).rightCols( full_cols - rank_inc );
+        gyoza::algorithms::FullPivotSNF< DenseMatrix > snf_right_q( sub_right_q_matrix, true );
+        sub_left_q_matrix = snf_right_q.get_P() * sub_left_q_matrix;
 
         // base change
         DenseMatrix temp_base_change = DenseMatrix::Identity( full_cols, full_cols );
-        temp_base_change.bottomRightCorner( snf_right_kappa.get_Q().rows(),
-                                            snf_right_kappa.get_Q().cols()) = snf_right_kappa.get_Q();
-        dom_base_change = dom_base_change * temp_base_change;
+        temp_base_change.bottomRightCorner( snf_right_q.get_Q().rows(),
+                                            snf_right_q.get_Q().cols()) = snf_right_q.get_Q();
+        graph_base_change = graph_base_change * temp_base_change;
 
-        auto rank_right_kappa = snf_right_kappa.rank();
+        auto rank_right_q = snf_right_q.rank();
 
-        DenseMatrix sub_left_top_kappa_matrix = sub_left_kappa_matrix.topRows( rank_right_kappa );
-        DenseMatrix sub_left_bottom_kappa_matrix = sub_left_kappa_matrix.bottomRows(
-                kappa_matrix.rows() - rank_right_kappa );
+        DenseMatrix sub_left_top_q_matrix = sub_left_q_matrix.topRows( rank_right_q );
+        DenseMatrix sub_left_bottom_q_matrix = sub_left_q_matrix.bottomRows(
+                induced_right_matrix.rows() - rank_right_q );
 
-        // base change (zeroing out sub_left_top_kappa_matrix by snf of sub_right_kappa)
+        // base change (zeroing out sub_left_top_q_matrix by snf of sub_right_q)
         temp_base_change = DenseMatrix::Identity( full_cols, full_cols );
-        temp_base_change.block( sub_left_top_kappa_matrix.cols(), 0, sub_left_top_kappa_matrix.rows(),
-                                sub_left_top_kappa_matrix.cols()) = (-1) * sub_left_top_kappa_matrix;
-        dom_base_change = dom_base_change * temp_base_change;
+        temp_base_change.block( sub_left_top_q_matrix.cols(), 0, sub_left_top_q_matrix.rows(),
+                                sub_left_top_q_matrix.cols()) = (-1) * sub_left_top_q_matrix;
+        graph_base_change = graph_base_change * temp_base_change;
 
-        gyoza::algorithms::FullPivotSNF< DenseMatrix > snf_left_bottom_kappa( sub_left_bottom_kappa_matrix, true );
+        gyoza::algorithms::FullPivotSNF< DenseMatrix > snf_left_bottom_q( sub_left_bottom_q_matrix, true );
 
         // base change
         temp_base_change = DenseMatrix::Identity( full_cols, full_cols );
-        temp_base_change.topLeftCorner( snf_left_bottom_kappa.get_Q().rows(),
-                                        snf_left_bottom_kappa.get_Q().cols()) = snf_left_bottom_kappa.get_Q();
-        dom_base_change = dom_base_change * temp_base_change;
+        temp_base_change.topLeftCorner( snf_left_bottom_q.get_Q().rows(),
+                                        snf_left_bottom_q.get_Q().cols()) = snf_left_bottom_q.get_Q();
+        graph_base_change = graph_base_change * temp_base_change;
 
-        snf_base_change.compute( dom_base_change );//Using snf to get inverse
+        snf_base_change.compute( graph_base_change );//Using snf to get inverse
 
-        return snf_left_bottom_kappa.rank(); //dim of I[1,3]
+        return snf_left_bottom_q.rank(); //dim of I[1,3]
     }
 
     // make the main (last) persistence module
     void
-    get_all_change_of_basis( const Dimension dim, const ReducedDom& reduce_dom,
+    get_all_change_of_basis( const Dimension dim, const ReducedGraph& reduce_graph,
                              const Reduced& reduce_domain,
                              const Reduced& reduce_codomain,
                              const Radii& radii_vector_domain,
                              const Radii& radii_vector_codomain,
-                             const SparseMatrix& inclusion_matrix, const SparseMatrix& kappa_matrix,
+                             const SparseMatrix& induced_left_matrix, const SparseMatrix& induced_right_matrix,
                              const CriticalIndexRadiusPairs& critical_index_radius_pairs,
                              std::vector< DenseMatrix >& main_persistence_module,
                              std::vector< DenseMatrix >& change_basis_generators ) {
@@ -414,30 +415,30 @@ namespace Pdsm {
         for ( Index block = 0; block < nr_critical_values; ++block ) {
             const Index critical_idx = critical_index_radius_pairs.at( block ).first; // max index in block
             const Radius critical_radius = critical_index_radius_pairs.at( block ).second;
-            // H\iota_{critical_radius}
-            DenseMatrix inclusion_matrix_at_block;
+            // p_*_{critical_radius}
+            DenseMatrix induced_left_matrix_at_block;
             make_cycle_matrix_at( critical_idx, critical_radius, dim,
-                                  reduce_dom, reduce_domain, radii_vector_domain,
-                                  inclusion_matrix,
-                                  inclusion_matrix_at_block );
-            // H\kappa'_{critical_radius}
-            DenseMatrix kappa_matrix_at_block;
+                                  reduce_graph, reduce_domain, radii_vector_domain,
+                                  induced_left_matrix,
+                                  induced_left_matrix_at_block );
+            // q_*_{critical_radius}
+            DenseMatrix induced_right_matrix_at_block;
             make_cycle_matrix_at( critical_idx, critical_radius, dim,
-                                  reduce_dom, reduce_codomain, radii_vector_codomain,
-                                  kappa_matrix,
-                                  kappa_matrix_at_block );
+                                  reduce_graph, reduce_codomain, radii_vector_codomain,
+                                  induced_right_matrix,
+                                  induced_right_matrix_at_block );
 
-            // H(inclusion of dom filt) from critical_idx to next critical_idx
+            // H(inclusion of graph filt) from critical_idx to next critical_idx
             if ( block < nr_critical_values - 1 ) {
                 Index idx_source = critical_index_radius_pairs[block].first;
                 Index idx_target = critical_index_radius_pairs[block + 1].first;
-                make_filter_matrix_between( idx_source, idx_target, dim, reduce_dom,
+                make_filter_matrix_between( idx_source, idx_target, dim, reduce_graph,
                                             main_persistence_module[block] );
             }
 
-            // compute basis of I[1,3] in Hdom_idx
+            // compute basis of I[1,3] in HG_idx
             gyoza::algorithms::FullPivotSNF< DenseMatrix > snf_base_change;
-            module_dims[block] = get_change_of_basis( inclusion_matrix_at_block, kappa_matrix_at_block,
+            module_dims[block] = get_change_of_basis( induced_left_matrix_at_block, induced_right_matrix_at_block,
                                                       snf_base_change );
 
 
@@ -447,8 +448,8 @@ namespace Pdsm {
                 std::cerr << base_change << std::endl;
                 std::cerr << block << std::endl;
                 std::cerr << module_dims.at( block ) << std::endl;
-                std::cerr << inclusion_matrix_at_block << std::endl << std::endl;
-                std::cerr << kappa_matrix_at_block << std::endl;
+                std::cerr << induced_left_matrix_at_block << std::endl << std::endl;
+                std::cerr << induced_right_matrix_at_block << std::endl;
                 throw;
             }
             DenseMatrix base_change_inv = *snf_base_change.get_inverse();
@@ -565,10 +566,10 @@ namespace Pdsm {
                               std::vector< DenseMatrix >& main_persistence_module,
                               const CriticalIndexRadiusPairs& critical_index_radius_pairs,
                               std::vector< DenseMatrix >& change_basis_generators,
-                              const ReducedDom& reduce_dom,
+                              const ReducedGraph& reduce_graph,
                               BirthDeathPairs& bd_pairs,
                               std::vector< gyoza::Index >& piv_col_of_bd_pairs,
-                              const IndexColumn& sorted_domain_index,
+                              const IndexColumn& sorted_graph_index,
                               const IndexMatrix& vertex_matrix,
                               const std::string& outfile_directory ) {
         Index nr_blocks = main_persistence_module.size() + 1; //size = # of maps
@@ -742,20 +743,20 @@ namespace Pdsm {
 
             //compute the generators of this cycle
             IndexColumn generators;
-            reduce_dom.get_generators_at( critical_index_radius_pairs.at( birth_block_idx ).first, dim,
-                                          generators );
+            reduce_graph.get_generators_at( critical_index_radius_pairs.at( birth_block_idx ).first, dim,
+                                            generators );
             std::ofstream outputfile_generator( outfile_directory + "/generator" + std::to_string( i ) + ".txt" );
             for ( int j = 0; j < generators.size(); ++j ) {
                 if ( can_basis( j, 0 ) != 0 ) {
                     std::cout << generators[j] << "\n";
                     std::cout << "coeff = " << can_basis( j, 0 ) << "\n";
                     SparseColumn vec_edges;
-                    reduce_dom.get_col( generators[j], vec_edges );
+                    reduce_graph.get_col( generators[j], vec_edges );
                     for ( SparseColumn::InnerIterator it( vec_edges ); it; ++it ) {
                         auto edge_idx = it.row();
                         std::cout << "coeff = " << it.value() << ": ";
                         IndexColumn vec_vertices;
-                        vertex_matrix.get_col( sorted_domain_index[edge_idx], vec_vertices );
+                        vertex_matrix.get_col( sorted_graph_index[edge_idx], vec_vertices );
                         std::cout << "(";
                         auto nr_vertices = vec_vertices.size();
                         for ( auto k = 0; k < nr_vertices; ++k ) {

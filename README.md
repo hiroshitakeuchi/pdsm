@@ -10,7 +10,9 @@ Eigen http://eigen.tuxfamily.org/
 
 ## Remarks on the source codes
 
-The arXiv peper is v2 but the source code still use the terminology for v1. The author will update it soon.
+~~The arXiv peper is v2 but the source code still use the terminology for v1. The author will update it soon.~~
+
+-> Updated
 
 ## Build
 
