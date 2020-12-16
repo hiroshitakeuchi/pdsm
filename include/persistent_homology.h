@@ -204,7 +204,7 @@ namespace Pdsm{
         }
     };
 
-    class BoundaryMatrixDom : public BoundaryMatrix {
+    class BoundaryMatrixGraph : public BoundaryMatrix {
     protected:
         std::vector< Index > block;
 
@@ -220,46 +220,46 @@ namespace Pdsm{
         }
 
         void generate_new_bdmat_by_sorted_index( const IndexColumn& sorted_index,
-                                                 const BoundaryMatrix& original_bdmat ) {
-            const Index size = original_bdmat.cols();
+                                                 const BoundaryMatrix& bdmat_domain ) {
+            const Index size = bdmat_domain.cols();
             this->resize_cols( size );
             for ( Index original_idx = 0; original_idx != size; ++original_idx ) {
-                //Index in dom filtration
-                Index dom_idx = sorted_index.at( original_idx );
+                //Index in graph filtration
+                Index graph_idx = sorted_index.at( original_idx );
 
                 //new column of the boundary matrix
                 SparseColumn old_col, new_col;
-                original_bdmat.get_col( original_idx, old_col );
+                bdmat_domain.get_col( original_idx, old_col );
                 new_col.resize( old_col.size());
                 for ( SparseColumn::InnerIterator it( old_col ); it; ++it ) {
                     new_col.coeffRef( sorted_index.at( it.row())) = it.value();
                 }
-                this->set_col( dom_idx, new_col );
+                this->set_col( graph_idx, new_col );
 
                 //copy dims
-                this->set_dim( dom_idx, original_bdmat.get_dim( original_idx ));
+                this->set_dim( graph_idx, bdmat_domain.get_dim( original_idx ));
             }
         }
 
-        // sorted_domain_index = Index map of inclusion_map
-        void set_boundary_matrix_dom( const IndexColumn& index_at_codomain, const BoundaryMatrix& original_bdmat,
-                                      const Radii& radii_vector, const Radii& radii_vector_codomain,
-                                      SparseMatrix& inclusion_map,
-                                      IndexColumn& sorted_domain_index,
-                                      CriticalIndexRadiusPairs& critical_index_and_radii ) {
-            const Index size = original_bdmat.cols();
+        // sorted_graph_index = Index map of left_projection
+        void set_boundary_matrix_graph( const IndexColumn& index_at_codomain, const BoundaryMatrix& bdmat_domain,
+                                        const Radii& radii_vector_domain, const Radii& radii_vector_codomain,
+                                        SparseMatrix& left_projection,
+                                        IndexColumn& sorted_graph_index,
+                                        CriticalIndexRadiusPairs& critical_index_and_radii ) {
+            const Index size = bdmat_domain.cols();
             this->resize_cols( size );
             std::vector< bool > flags_already_get( size, false ); // a vector f_a_g = (false, false, ..., false)
 
-            IndexColumn sorted_index;// inverse map of sorted_domain_index
+            IndexColumn sorted_index;// inverse map of sorted_graph_index
 
-            sorted_domain_index.reserve( size );
+            sorted_graph_index.reserve( size );
 
             std::vector< Index > block_index;
             block_index.resize( size );
 
-            //Index in idx-th dom, then Index <= idx && map(Index) <= filter_idx_codomain
-            Radii unique_radii = radii_vector; // set of critical values (of domain and of codomain)
+            //Index in idx-th graph, then Index <= idx && map(Index) <= filter_idx_codomain
+            Radii unique_radii = radii_vector_domain; // set of critical values (of domain and of codomain)
             unique_radii.insert( unique_radii.end(), radii_vector_codomain.begin(), radii_vector_codomain.end());
             sort_and_unique( unique_radii );
 //            unique_radii.erase( std::unique( unique_radii.begin(), unique_radii.end()), unique_radii.end());
@@ -267,12 +267,12 @@ namespace Pdsm{
             critical_index_and_radii.resize( nr_critical_value );
             Index critical_index_counter = -1;
             for ( Index i = 0; i < nr_critical_value; ++i ) {
-                Index filter_idx_domain = max_index_under_value( radii_vector, unique_radii[i] );
+                Index filter_idx_domain = max_index_under_value( radii_vector_domain, unique_radii[i] );
                 Index filter_idx_codomain = max_index_under_value( radii_vector_codomain, unique_radii[i] );
                 for ( Index idx = 0; idx != filter_idx_domain + 1; ++idx ) {
                     if ( !flags_already_get.at( idx ) && index_at_codomain.at( idx ) != -1 &&
                          index_at_codomain.at( idx ) <= filter_idx_codomain ) {
-                        sorted_domain_index.push_back( idx );
+                        sorted_graph_index.push_back( idx );
                         block_index[idx] = i;
                         flags_already_get.at( idx ) = true;
                         ++critical_index_counter;
@@ -284,7 +284,7 @@ namespace Pdsm{
             if ( critical_index_counter != size - 1 ) {
                 for ( Index idx = 0; idx != size; ++idx ) {
                     if ( !flags_already_get.at( idx )) {
-                        sorted_domain_index.push_back( idx );
+                        sorted_graph_index.push_back( idx );
                         block_index[idx] = -1;
                         flags_already_get.at( idx ) = true;
                         ++critical_index_counter;
@@ -293,17 +293,17 @@ namespace Pdsm{
                 critical_index_and_radii[nr_critical_value - 1] = std::make_pair( critical_index_counter, DBL_MAX );
             }
 
-            // generate inclusion_map from sorted_domain_index
-            inclusion_map.resize( size, size );
+            // generate left_projection from sorted_graph_index
+            left_projection.resize( size, size );
             for ( Index idx = 0; idx < size; ++idx ) {
-                inclusion_map.coeffRef( sorted_domain_index.at( idx ), idx ) = 1;
+                left_projection.coeffRef( sorted_graph_index.at( idx ), idx ) = 1;
             }
-            inclusion_map.prune( 0, 0 );
+            left_projection.prune( 0, 0 );
 
-            // generate sorted_index as the inverse of sorted_domain_index
-            sorted_index.resize( sorted_domain_index.size());
+            // generate sorted_index as the inverse of sorted_graph_index
+            sorted_index.resize( sorted_graph_index.size());
             for ( Index idx = 0; idx < size; ++idx ) {
-                sorted_index[sorted_domain_index.at( idx )] = idx;
+                sorted_index[sorted_graph_index.at( idx )] = idx;
             }
 
             // sort block_index according to sorted_index (this is equal to sort(block_index))
@@ -315,16 +315,16 @@ namespace Pdsm{
             std::swap( block_index, temp_block_index );
 
             if ( sorted_index.size() != size ) {
-                std::cerr << "Function set_boundary_matrix_dom ERROR: sorted_index" << std::endl;
+                std::cerr << "Function set_boundary_matrix_graph ERROR: sorted_index" << std::endl;
                 throw;
             }
 
             if ( block_index.size() != size ) {
-                std::cerr << "Function set_boundary_matrix_dom ERROR: block_index" << std::endl;
+                std::cerr << "Function set_boundary_matrix_graph ERROR: block_index" << std::endl;
                 throw;
             }
 
-            this->generate_new_bdmat_by_sorted_index( sorted_index, original_bdmat );
+            this->generate_new_bdmat_by_sorted_index( sorted_index, bdmat_domain );
             this->set_all_block( block_index );
         }
     };

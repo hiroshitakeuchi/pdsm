@@ -97,29 +97,29 @@ int main( int argc, char *argv[] ) {
         std::cout << homological_simplicial_map << std::endl;
     }
 
-    std::cout << "\n### Generating dom boundary matrix ###" << std::endl;
-    Pdsm::BoundaryMatrixDom dom_bdmat;
-    Pdsm::SparseMatrix inclusion_map;
-    Pdsm::IndexColumn sorted_domain_index;
+    std::cout << "\n### Generating graph boundary matrix ###" << std::endl;
+    Pdsm::BoundaryMatrixGraph graph_bdmat;
+    Pdsm::SparseMatrix left_projection;
+    Pdsm::IndexColumn sorted_graph_index;
     Pdsm::CriticalIndexRadiusPairs critical_index_radius_pairs;
-    dom_bdmat.set_boundary_matrix_dom( index_at_codomain, bdmat_domain, radii_vector_domain,
-                                       radii_vector_codomain,
-                                       inclusion_map, sorted_domain_index, critical_index_radius_pairs );
-    std::cout << "\nThe dom boundary matrix is:" << std::endl;
+    graph_bdmat.set_boundary_matrix_graph( index_at_codomain, bdmat_domain, radii_vector_domain,
+                                           radii_vector_codomain,
+                                           left_projection, sorted_graph_index, critical_index_radius_pairs );
+    std::cout << "\nThe graph boundary matrix is:" << std::endl;
     if ( flag_print ) {
-        dom_bdmat.print_matrix();
+        graph_bdmat.print_matrix();
     }
-    std::cout << "\nThe inclusion map is:" << std::endl;
+    std::cout << "\nThe left projection is:" << std::endl;
     if ( flag_print ) {
-        std::cout << inclusion_map << std::endl;
+        std::cout << left_projection << std::endl;
     }
 
-    std::cout << "\nThe homological simplicial map from dom (\\kappa') is:" << std::endl;
-    Pdsm::SparseMatrix homological_simplicial_map_from_dom;
-    Pdsm::get_homological_simplicial_map_from_dom( inclusion_map, homological_simplicial_map,
-                                                   homological_simplicial_map_from_dom );
+    std::cout << "\nThe right projection is:" << std::endl;
+    Pdsm::SparseMatrix right_projection;
+    Pdsm::get_right_projection( left_projection, homological_simplicial_map,
+                                right_projection );
     if ( flag_print ) {
-        std::cout << homological_simplicial_map_from_dom << std::endl;
+        std::cout << right_projection << std::endl;
     }
 
     auto time_start = std::chrono::system_clock::now();
@@ -139,11 +139,11 @@ int main( int argc, char *argv[] ) {
     Pdsm::Reduced reduce_codomain;
     reduce_codomain( bdmat_codomain );
 
-    std::cout << "The reduced domain boundary matrix is:" << std::endl;
-    Pdsm::ReducedDom reduce_dom;
-    reduce_dom( dom_bdmat );
+    std::cout << "The reduced graph boundary matrix is:" << std::endl;
+    Pdsm::ReducedGraph reduce_graph;
+    reduce_graph( graph_bdmat );
     if ( flag_print ) {
-        dom_bdmat.print_matrix();
+        graph_bdmat.print_matrix();
     }
 
     auto time_step1 = std::chrono::system_clock::now();
@@ -153,18 +153,18 @@ int main( int argc, char *argv[] ) {
     // ########## STEP2 compute Matrix pairs ##########
     std::cout << "\n########## STEP 2 ##########\ncompute Matrix pairs" << std::endl;
 
-    std::cout << "\nThe induced inclusion matrix \\iota_* is:" << std::endl;
-    Pdsm::SparseMatrix inclusion_matrix;
-    Pdsm::make_cycle_matrix( reduce_dom, inclusion_map, reduce, inclusion_matrix );
+    std::cout << "\nThe induced left matrix p_* is:" << std::endl;
+    Pdsm::SparseMatrix induced_left_matrix;
+    Pdsm::make_cycle_matrix( reduce_graph, left_projection, reduce, induced_left_matrix );
     if ( flag_print ) {
-        std::cout << inclusion_matrix << std::endl;
+        std::cout << induced_left_matrix << std::endl;
     }
 
-    std::cout << "\nThe induced kappa matrix \\kappa'_* is:" << std::endl;
-    Pdsm::SparseMatrix kappa_matrix;
-    Pdsm::make_cycle_matrix( reduce_dom, homological_simplicial_map_from_dom, reduce_codomain, kappa_matrix );
+    std::cout << "\nThe induced right matrix q_* is:" << std::endl;
+    Pdsm::SparseMatrix induced_right_matrix;
+    Pdsm::make_cycle_matrix( reduce_graph, right_projection, reduce_codomain, induced_right_matrix );
     if ( flag_print ) {
-        std::cout << kappa_matrix << std::endl;
+        std::cout << induced_right_matrix << std::endl;
     }
 
 
@@ -177,10 +177,10 @@ int main( int argc, char *argv[] ) {
     std::cout << "\n########## STEP3 ##########\nComputing persistence module\n";
     std::vector< Pdsm::DenseMatrix > main_persistence_module;
     std::vector< Pdsm::DenseMatrix > change_basis_generators;
-    Pdsm::get_all_change_of_basis( dim, reduce_dom,
+    Pdsm::get_all_change_of_basis( dim, reduce_graph,
                                    reduce, reduce_codomain,
                                    radii_vector_domain, radii_vector_codomain,
-                                   inclusion_matrix, kappa_matrix,
+                                   induced_left_matrix, induced_right_matrix,
                                    critical_index_radius_pairs,
                                    main_persistence_module,
                                    change_basis_generators );
@@ -191,8 +191,8 @@ int main( int argc, char *argv[] ) {
     Pdsm::BirthDeathPairs bd_pairs;
     std::vector< gyoza::Index > piv_col_of_bd_pairs;
     Pdsm::make_persistence_diagram( dim, main_persistence_module, critical_index_radius_pairs, change_basis_generators,
-                                    reduce_dom,
-                                    bd_pairs, piv_col_of_bd_pairs, sorted_domain_index, vertex_matrix_domain,
+                                    reduce_graph,
+                                    bd_pairs, piv_col_of_bd_pairs, sorted_graph_index, vertex_matrix_domain,
                                     outfile_directory );
 
     auto time_step3 = std::chrono::system_clock::now();
